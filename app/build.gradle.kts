@@ -3,6 +3,7 @@ plugins {
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
+val buildNumber = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
 android {
     namespace = "com.neon.dns"
     compileSdk = 34
@@ -10,8 +11,8 @@ android {
         applicationId = "com.neon.dns"
         minSdk = 24
         targetSdk = 34
-        versionCode = 2
-        versionName = "1.1"
+        versionCode = buildNumber
+        versionName = "1.$buildNumber"
     }
     buildFeatures { compose = true }
     compileOptions {
