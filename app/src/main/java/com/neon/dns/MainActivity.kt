@@ -42,6 +42,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
@@ -64,7 +65,7 @@ val dimBrush = Brush.horizontalGradient(listOf(Color(0x557B2FFF), Color(0x552F7B
 val titleBrush = Brush.horizontalGradient(listOf(Pink, Violet, Blue, Cyan))
 val ringBrush = Brush.sweepGradient(listOf(Pink, Violet, Blue, Cyan, Blue, Violet, Pink))
 val ringThin = Brush.sweepGradient(listOf(Color(0x00E41BFF), Color(0xAA7B2FFF), Color(0x002F7BFF), Color(0xAA00E5FF), Color(0x00E41BFF)))
-val glowBrush = Brush.radialGradient(listOf(Color(0x667B2FFF), Color.Transparent))
+val glowBrush = Brush.radialGradient(listOf(Color(0x447B2FFF), Color.Transparent))
 val innerBrush = Brush.radialGradient(listOf(Color(0xFF16163F), Color(0xFF05050F)))
 
 data class Srv(
@@ -116,10 +117,10 @@ fun Modifier.neonBg(): Modifier = this.drawWithCache {
     val w = size.width
     val h = size.height
     val glows = listOf(
-        Brush.radialGradient(listOf(Color(0x77B000FF), Color.Transparent), Offset(0f, h * 0.04f), w * 0.95f),
-        Brush.radialGradient(listOf(Color(0x552F7BFF), Color.Transparent), Offset(w, h * 0.28f), w * 0.8f),
-        Brush.radialGradient(listOf(Color(0x66B000FF), Color.Transparent), Offset(0f, h * 0.70f), w * 0.8f),
-        Brush.radialGradient(listOf(Color(0x6600B7FF), Color.Transparent), Offset(w, h * 0.98f), w * 0.95f)
+        Brush.radialGradient(listOf(Color(0x40B000FF), Color.Transparent), Offset(0f, h * 0.03f), w * 0.75f),
+        Brush.radialGradient(listOf(Color(0x302F7BFF), Color.Transparent), Offset(w, h * 0.30f), w * 0.65f),
+        Brush.radialGradient(listOf(Color(0x40B000FF), Color.Transparent), Offset(0f, h * 0.72f), w * 0.65f),
+        Brush.radialGradient(listOf(Color(0x4000B7FF), Color.Transparent), Offset(w, h * 0.99f), w * 0.8f)
     )
     fun wave(x0: Float, y0: Float, c1x: Float, c1y: Float, c2x: Float, c2y: Float, x1: Float, y1: Float) =
         Path().apply {
@@ -137,11 +138,11 @@ fun Modifier.neonBg(): Modifier = this.drawWithCache {
     val thin = Stroke(2.dp.toPx())
     val thick = Stroke(14.dp.toPx())
     onDrawBehind {
-        drawRect(Color(0xFF03030C))
+        drawRect(Color(0xFF02020A))
         glows.forEach { drawRect(it) }
         waves.forEach { p ->
-            drawPath(p, wb, alpha = 0.16f, style = thick)
-            drawPath(p, wb, alpha = 0.85f, style = thin)
+            drawPath(p, wb, alpha = 0.10f, style = thick)
+            drawPath(p, wb, alpha = 0.80f, style = thin)
         }
     }
 }
@@ -283,7 +284,8 @@ fun MainScreen(
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.weight(1f).height(2.dp).background(Brush.horizontalGradient(listOf(Color.Transparent, Cyan))))
                 Text(if (on) "قطع اتصال DNS" else "اتصال به DNS", color = Color.White, fontSize = 26.sp,
-                    fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 14.dp))
+                    fontWeight = FontWeight.SemiBold, style = TextStyle(textDirection = TextDirection.Rtl),
+                    modifier = Modifier.padding(horizontal = 14.dp))
                 Box(Modifier.weight(1f).height(2.dp).background(Brush.horizontalGradient(listOf(Cyan, Color.Transparent))))
             }
         }
@@ -429,7 +431,8 @@ fun App() {
                                 drawLine(Blue, Offset(c.x - r, c.y), Offset(c.x + r, c.y), 2.dp.toPx())
                             }
                             Spacer(Modifier.width(10.dp))
-                            Text("انتخاب سرور DNS", color = Cyan, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                            Text("انتخاب سرور DNS", color = Cyan, fontSize = 24.sp, fontWeight = FontWeight.Bold,
+                                style = TextStyle(textDirection = TextDirection.Rtl))
                         }
                         Box(
                             Modifier.size(52.dp).clip(CircleShape).border(1.5.dp, Violet, CircleShape)
