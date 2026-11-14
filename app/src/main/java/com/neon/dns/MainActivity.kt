@@ -24,14 +24,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.*
@@ -49,91 +47,54 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import java.net.DatagramPacket
-import java.net.DatagramSocket
-import java.net.InetAddress
-import kotlin.math.cos
-import kotlin.math.sin
 
-const val TELEGRAM_ID = "NpvTunnel111"
+const val TELEGRAM_URL = "https://t.me/pingo_shops"
 
-val Cyan = Color(0xFF00E5FF)
+val Pink = Color(0xFFE41BFF)
+val Violet = Color(0xFF7B2FFF)
 val Blue = Color(0xFF2F7BFF)
-val Purple = Color(0xFFB026FF)
-val Gold = Color(0xFFE9C987)
+val Cyan = Color(0xFF00E5FF)
 val Muted = Color(0xFF9AA8D0)
 val Green = Color(0xFF00FF7F)
-val Red = Color(0xFFFF3D6E)
-val palette = listOf(Color(0xFF00E5FF), Color(0xFF2F7BFF), Color(0xFFB026FF), Color(0xFFFF2DAA))
+val Red = Color(0xFFFF2D55)
+val CardBg = Color(0xCC0A0620)
 
-fun cycle(p: Float, off: Float): Color {
-    val x = (((p + off) % 1f + 1f) % 1f) * palette.size
-    val i = x.toInt() % palette.size
-    val f = x - x.toInt()
-    return lerp(palette[i], palette[(i + 1) % palette.size], f)
-}
-
-fun Modifier.cycBorder(hue: State<Float>, shape: Shape, w: Dp): Modifier = this.drawBehind {
-    val o = shape.createOutline(size, layoutDirection, this)
-    val a = cycle(hue.value, 0f)
-    val b = cycle(hue.value, .5f)
-    drawOutline(o, Brush.horizontalGradient(listOf(a, b, a)), style = Stroke(w.toPx() * 2))
-}
+val gradBrush = Brush.horizontalGradient(listOf(Pink, Violet, Blue, Cyan))
+val dimBrush = Brush.horizontalGradient(listOf(Color(0x557B2FFF), Color(0x552F7BFF)))
+val titleBrush = Brush.horizontalGradient(listOf(Pink, Violet, Blue, Cyan))
+val ringBrush = Brush.sweepGradient(listOf(Pink, Violet, Blue, Cyan, Blue, Violet, Pink))
+val ringThin = Brush.sweepGradient(listOf(Color(0x00E41BFF), Color(0xAA7B2FFF), Color(0x002F7BFF), Color(0xAA00E5FF), Color(0x00E41BFF)))
+val glowBrush = Brush.radialGradient(listOf(Color(0x667B2FFF), Color.Transparent))
+val innerBrush = Brush.radialGradient(listOf(Color(0xFF16163F), Color(0xFF05050F)))
 
 data class Srv(
     val id: String, val name: String, val desc: String, val ip: String,
-    val cat: String, val tags: String = "", val ab: String = ""
+    val cat: String, val tags: String, val icon: String, val ab: String
 )
 
-val cats = listOf("همه", "علاقه‌مندی‌ها", "اختصاصی", "بتل‌رویال", "شوتر", "ورزشی", "استراتژی", "عمومی")
+val cats = listOf("همه", "علاقه‌مندی‌ها", "بتل‌رویال", "شوتر", "ورزشی", "استراتژی")
 
+// آی‌پی DNS هر سرور رو می‌تونید همین‌جا عوض کنید
 val servers = listOf(
-    Srv("rdns1", "سرور اختصاصی ۱", "پینگ فوق‌العاده و پایدار", "78.157.42.100", "اختصاصی", "", "P1"),
-    Srv("rdns2", "سرور اختصاصی ۲", "سرعت بالا، مسیریابی گیمینگ", "10.202.10.10", "اختصاصی", "", "P2"),
-    Srv("wz", "سرور وارزون موبایل (Warzone)", "پینگ بهتر برای رجیستری لگ", "8.8.8.8", "شوتر", "warzone وارزون", "WZ"),
-    Srv("so2", "سرور استندوف ۲ (Standoff 2)", "مخصوص رقابت‌های تورنمنت", "10.202.10.10", "شوتر", "standoff استندآف", "S2"),
-    Srv("cod", "سرور کالاف دیوتی (Call of Duty)", "ثبات پینگ برای بتل رویال و مولتی", "1.1.1.1", "شوتر", "cod کالاف", "COD"),
-    Srv("delta", "سرور دلتافورس (Delta Force)", "پینگ سبز بدون رجیستری لگ", "78.157.42.100", "شوتر", "delta force دلتا", "DF"),
-    Srv("pubg1", "سرور پابجی موبایل ۱ (PUBG)", "سرور اصلی اروپا و خاورمیانه", "1.1.1.1", "بتل‌رویال", "pubg پابجی", "PG1"),
-    Srv("pubg2", "سرور پابجی موبایل ۲ (PUBG)", "سرور پشتیبان و ارزان", "8.8.8.8", "بتل‌رویال", "pubg پابجی", "PG2"),
-    Srv("ff", "سرور فری فایر (Free Fire)", "اتصال پایدار بدون پاکت لاست", "9.9.9.9", "بتل‌رویال", "free fire فری فایر", "FF"),
-    Srv("ef1", "سرور EFootball ۱", "بدون تاخیر و شوت آنلاین", "1.1.1.1", "ورزشی", "efootball ای فوتبال pes", "EF1"),
-    Srv("ef2", "سرور EFootball ۲", "مخصوص مسابقات آنلاین", "8.8.8.8", "ورزشی", "efootball ای فوتبال pes", "EF2"),
-    Srv("fc", "سرور FC Mobile", "اتصال پایدار مسابقات Ultimate", "9.9.9.9", "ورزشی", "fc mobile فیفا fifa", "FC"),
-    Srv("coc1", "سرور کلش آف کلنز ۱", "بدون دیسکانکتی در اتک", "1.1.1.1", "استراتژی", "clash of clans coc کلش", "CC1"),
-    Srv("coc2", "سرور کلش آف کلنز ۲", "سرور پشتیبان وار کلن", "8.8.8.8", "استراتژی", "clash of clans coc کلش", "CC2"),
-    Srv("cf", "Cloudflare", "سریع و امن", "1.1.1.1", "عمومی", "", "CF"),
-    Srv("gg", "Google", "پایدار و جهانی", "8.8.8.8", "عمومی", "", "G"),
-    Srv("q9", "Quad9", "امنیت بالا", "9.9.9.9", "عمومی", "", "Q9"),
-    Srv("od", "OpenDNS", "پایداری بالا", "208.67.222.222", "عمومی", "", "OD"),
-    Srv("shecan", "Shecan", "دسترسی به سرویس‌ها", "178.22.122.100", "عمومی", "شکن", "SH"),
-    Srv("electro", "Electro", "مخصوص گیمینگ", "78.157.42.100", "عمومی", "الکترو", "EL"),
-    Srv("radar", "Radar Game", "پینگ پایین بازی", "10.202.10.10", "عمومی", "رادار", "RD"),
-    Srv("403", "403.online", "دور زدن تحریم", "10.202.10.202", "عمومی", "", "403"),
+    Srv("pubg1", "سرور پابجی موبایل ۱ (PUBG)", "سرور اصلی اروپا و خاورمیانه", "1.1.1.1", "بتل‌رویال", "pubg پابجی", "pubg", "PG"),
+    Srv("pubg2", "سرور پابجی موبایل ۲ (PUBG)", "سرور پشتیبان و ارزان", "8.8.8.8", "بتل‌رویال", "pubg پابجی", "pubg", "PG"),
+    Srv("ff", "سرور فری فایر (Free Fire)", "اتصال پایدار بدون پاکت لاست", "9.9.9.9", "بتل‌رویال", "free fire فری فایر", "ff", "FF"),
+    Srv("cod", "سرور کالاف دیوتی (Call of Duty)", "ثبات پینگ برای بتل رویال و مولتی", "1.1.1.1", "شوتر", "cod کالاف", "cod", "COD"),
+    Srv("so2", "سرور استندوف ۲ (Standoff 2)", "مخصوص رقابت‌های تورنمنت", "10.202.10.10", "شوتر", "standoff استندآف", "so2", "S2"),
+    Srv("ef1", "سرور EFootball ۱", "بدون تاخیر و شوت آنلاین", "1.1.1.1", "ورزشی", "efootball ای فوتبال pes", "ef", "EF"),
+    Srv("ef2", "سرور EFootball ۲", "مخصوص مسابقات آنلاین", "8.8.8.8", "ورزشی", "efootball ای فوتبال pes", "ef", "EF"),
+    Srv("coc1", "سرور کلش آف کلنز ۱", "بدون دیسکانکتی در اتک", "1.1.1.1", "استراتژی", "clash of clans coc کلش", "coc", "CC"),
+    Srv("coc2", "سرور کلش آف کلنز ۲", "سرور پشتیبان وار کلن", "8.8.8.8", "استراتژی", "clash of clans coc کلش", "coc", "CC"),
+    Srv("cr", "سرور کلش رویال (Clash Royale)", "اتصال پایدار در نبردها", "9.9.9.9", "استراتژی", "clash royale کلش رویال", "cr", "CR"),
 )
 
 object VpnState { var connected by mutableStateOf(false) }
 
-fun ping(ip: String): Int = try {
-    val q = byteArrayOf(0x12, 0x34, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0) +
-        "\u0006google\u0003com\u0000".toByteArray(Charsets.ISO_8859_1) + byteArrayOf(0, 1, 0, 1)
-    val s = DatagramSocket()
-    s.soTimeout = 2500
-    val t0 = System.nanoTime()
-    s.send(DatagramPacket(q, q.size, InetAddress.getByName(ip), 53))
-    s.receive(DatagramPacket(ByteArray(512), 512))
-    s.close()
-    ((System.nanoTime() - t0) / 1_000_000).toInt()
-} catch (e: Exception) { -1 }
-
 fun catColors(c: String): List<Color> = when (c) {
-    "اختصاصی" -> listOf(Cyan, Purple)
     "شوتر" -> listOf(Color(0xFFFF5470), Color(0xFFFF8A3D))
     "بتل‌رویال" -> listOf(Color(0xFFFFB400), Color(0xFFFF6A00))
     "ورزشی" -> listOf(Color(0xFF00E58F), Color(0xFF0097FF))
-    "استراتژی" -> listOf(Color(0xFFB026FF), Color(0xFF5B5BFF))
+    "استراتژی" -> listOf(Pink, Color(0xFF5B5BFF))
     else -> listOf(Color(0xFF3B5BDB), Color(0xFF00B7FF))
 }
 
@@ -151,6 +112,40 @@ fun starPath(cx: Float, cy: Float, r: Float): Path {
     return p
 }
 
+fun Modifier.neonBg(): Modifier = this.drawWithCache {
+    val w = size.width
+    val h = size.height
+    val glows = listOf(
+        Brush.radialGradient(listOf(Color(0x77B000FF), Color.Transparent), Offset(0f, h * 0.04f), w * 0.95f),
+        Brush.radialGradient(listOf(Color(0x552F7BFF), Color.Transparent), Offset(w, h * 0.28f), w * 0.8f),
+        Brush.radialGradient(listOf(Color(0x66B000FF), Color.Transparent), Offset(0f, h * 0.70f), w * 0.8f),
+        Brush.radialGradient(listOf(Color(0x6600B7FF), Color.Transparent), Offset(w, h * 0.98f), w * 0.95f)
+    )
+    fun wave(x0: Float, y0: Float, c1x: Float, c1y: Float, c2x: Float, c2y: Float, x1: Float, y1: Float) =
+        Path().apply {
+            moveTo(x0 * w, y0 * h)
+            cubicTo(c1x * w, c1y * h, c2x * w, c2y * h, x1 * w, y1 * h)
+        }
+    val waves = listOf(
+        wave(0f, 0.20f, 0.15f, 0.03f, 0.55f, 0.12f, 0.85f, 0f),
+        wave(0f, 0.28f, 0.20f, 0.08f, 0.60f, 0.20f, 1f, 0.02f),
+        wave(1f, 0.30f, 0.80f, 0.28f, 0.60f, 0.45f, 0.30f, 0.56f),
+        wave(0f, 0.63f, 0.30f, 0.60f, 0.70f, 0.72f, 1f, 0.82f),
+        wave(0f, 0.96f, 0.35f, 0.88f, 0.70f, 0.98f, 1f, 0.86f)
+    )
+    val wb = Brush.linearGradient(listOf(Pink, Blue, Cyan), Offset(0f, 0f), Offset(w, h))
+    val thin = Stroke(2.dp.toPx())
+    val thick = Stroke(14.dp.toPx())
+    onDrawBehind {
+        drawRect(Color(0xFF03030C))
+        glows.forEach { drawRect(it) }
+        waves.forEach { p ->
+            drawPath(p, wb, alpha = 0.16f, style = thick)
+            drawPath(p, wb, alpha = 0.85f, style = thin)
+        }
+    }
+}
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -160,18 +155,11 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun drawableId(name: String): Int {
-    val ctx = LocalContext.current
-    return remember(name) { ctx.resources.getIdentifier(name, "drawable", ctx.packageName) }
-}
-
-@Composable
-fun Badge(s: Srv, size: Dp) {
-    val rid = drawableId(if (s.cat == "اختصاصی") "pingo_icon" else "g_" + s.id)
+fun Badge(s: Srv, iconId: Int, size: Dp) {
     val shape = RoundedCornerShape(size * 0.24f)
-    if (rid != 0) {
+    if (iconId != 0) {
         Image(
-            painter = painterResource(rid), contentDescription = null, contentScale = ContentScale.Crop,
+            painter = painterResource(iconId), contentDescription = null, contentScale = ContentScale.Crop,
             modifier = Modifier.size(size).clip(shape).background(Color(0xFF0D0D0D))
         )
     } else {
@@ -181,38 +169,6 @@ fun Badge(s: Srv, size: Dp) {
         ) {
             val f = if (s.ab.length > 2) 0.26f else 0.34f
             Text(s.ab, color = Color.White, fontWeight = FontWeight.Black, fontSize = (size.value * f).sp, maxLines = 1)
-        }
-    }
-}
-
-@Composable
-fun Bars(level: Int, c: Color) {
-    Canvas(Modifier.size(22.dp, 16.dp)) {
-        val bw = size.width / 7f
-        for (i in 0 until 4) {
-            val h = size.height * (0.35f + 0.2f * i)
-            drawRoundRect(
-                color = if (i < level) c else Color.White.copy(alpha = .18f),
-                topLeft = Offset(i * bw * 2f, size.height - h),
-                size = Size(bw, h),
-                cornerRadius = CornerRadius(2f, 2f)
-            )
-        }
-    }
-}
-
-@Composable
-fun GearIcon(col: Color) {
-    Canvas(Modifier.size(32.dp)) {
-        val c = center
-        val r = size.width * .24f
-        drawCircle(col, r, c, style = Stroke(size.width * .12f))
-        for (i in 0 until 8) {
-            val ang = Math.toRadians(i * 45.0)
-            val dx = cos(ang).toFloat()
-            val dy = sin(ang).toFloat()
-            drawLine(col, Offset(c.x + dx * r * 1.4f, c.y + dy * r * 1.4f),
-                Offset(c.x + dx * r * 1.9f, c.y + dy * r * 1.9f), size.width * .15f, StrokeCap.Round)
         }
     }
 }
@@ -232,129 +188,183 @@ fun PowerIcon(col: Color, sz: Dp) {
 }
 
 @Composable
-fun Chevron(col: Color) {
-    Canvas(Modifier.size(16.dp, 22.dp)) {
+fun Chevron(col: Color, right: Boolean) {
+    Canvas(Modifier.size(14.dp, 20.dp)) {
+        val a = if (right) 0.2f else 0.8f
+        val b = if (right) 0.8f else 0.2f
         val p = Path().apply {
-            moveTo(size.width * .8f, size.height * .1f)
-            lineTo(size.width * .2f, size.height * .5f)
-            lineTo(size.width * .8f, size.height * .9f)
+            moveTo(size.width * a, size.height * .1f)
+            lineTo(size.width * b, size.height * .5f)
+            lineTo(size.width * a, size.height * .9f)
         }
         drawPath(p, col, style = Stroke(2.5.dp.toPx(), cap = StrokeCap.Round))
     }
 }
 
 @Composable
-fun MainScreen(
-    on: Boolean, sel: Srv, hue: State<Float>, rot: State<Float>, pulse: State<Float>,
-    onToggle: () -> Unit, onOpenSheet: () -> Unit, onSettings: () -> Unit
-) {
-    val a = cycle(hue.value, 0f)
-    val b = cycle(hue.value, .5f)
-    val logoId = drawableId("pingo_logo")
+fun StarIcon(fav: Boolean) {
+    Canvas(Modifier.size(22.dp)) {
+        val sp2 = starPath(size.width / 2, size.height / 2, size.width / 2)
+        if (fav) drawPath(sp2, Color(0xFFFFD43B)) else drawPath(sp2, Muted, style = Stroke(2.dp.toPx()))
+    }
+}
 
+@Composable
+fun TelegramIcon() {
+    Canvas(Modifier.size(40.dp)) {
+        val w = size.width
+        val h = size.height
+        val p = Path().apply {
+            moveTo(.04f * w, .46f * h); lineTo(.96f * w, .08f * h)
+            lineTo(.66f * w, .92f * h); lineTo(.47f * w, .60f * h); close()
+        }
+        drawPath(p, Brush.linearGradient(listOf(Cyan, Blue)))
+    }
+}
+
+@Composable
+fun MainScreen(
+    on: Boolean, selName: String, version: String, rot: State<Float>, pulse: State<Float>,
+    onToggle: () -> Unit, onOpenSheet: () -> Unit, onTelegram: () -> Unit
+) {
+    val pill = RoundedCornerShape(50)
     Column(
         Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()
-            .verticalScroll(rememberScrollState()).padding(horizontal = 18.dp),
+            .verticalScroll(rememberScrollState()).padding(horizontal = 20.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-            Row(Modifier.fillMaxWidth().padding(top = 10.dp), verticalAlignment = Alignment.Top) {
-                Spacer(Modifier.width(48.dp))
-                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                    if (logoId != 0) {
-                        Image(painter = painterResource(logoId), contentDescription = null,
-                            modifier = Modifier.height(112.dp))
-                    } else {
-                        Text("Pingo", color = Gold, fontSize = 34.sp, fontWeight = FontWeight.Bold)
-                    }
-                    Text("DNS", color = Gold, fontSize = 20.sp, fontWeight = FontWeight.Bold, letterSpacing = 10.sp,
-                        modifier = Modifier.padding(top = 2.dp, start = 10.dp))
-                }
-                Box(Modifier.size(48.dp).clip(CircleShape).clickable { onSettings() }, contentAlignment = Alignment.Center) {
-                    GearIcon(Blue)
-                }
+            Row(Modifier.fillMaxWidth().padding(top = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("PINGODNS", style = TextStyle(brush = titleBrush, fontSize = 30.sp, fontWeight = FontWeight.Black),
+                    modifier = Modifier.weight(1f))
+                Text("v$version", color = Cyan, fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                    modifier = Modifier.clip(pill).border(1.dp, gradBrush, pill).padding(horizontal = 12.dp, vertical = 5.dp))
             }
         }
 
-        val ps = RoundedCornerShape(44.dp)
-        Row(
-            Modifier.fillMaxWidth().padding(top = 16.dp).height(78.dp).clip(ps)
-                .background(Brush.horizontalGradient(listOf(Color(0xFF16103F), Color(0xFF0A0A24))))
-                .cycBorder(hue, ps, 2.dp),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically
+        val st = RoundedCornerShape(30.dp)
+        Column(
+            Modifier.padding(top = 24.dp).fillMaxWidth(0.74f).clip(st).background(CardBg)
+                .border(1.5.dp, gradBrush, st).padding(vertical = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(9.dp).background(if (on) Green else Red, CircleShape))
-                    Spacer(Modifier.width(7.dp))
-                    Text("وضعیت اتصال", color = Color.White, fontSize = 14.sp)
-                }
-                Text(if (on) "DNS متصل شد" else "متصل نیست", color = if (on) Green else Red,
-                    fontSize = 19.sp, fontWeight = FontWeight.Bold)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(10.dp).background(if (on) Green else Violet, CircleShape))
+                Spacer(Modifier.width(14.dp))
+                Text("وضعیت اتصال", color = Color.White, fontSize = 15.sp)
+                Spacer(Modifier.width(14.dp))
+                Box(Modifier.size(10.dp).background(if (on) Green else Red, CircleShape))
             }
+            Text(if (on) "متصل شد" else "متصل نیست", color = if (on) Green else Pink,
+                fontSize = 22.sp, fontWeight = FontWeight.Bold)
         }
 
-        Spacer(Modifier.height(22.dp))
+        Spacer(Modifier.height(30.dp))
         Box(Modifier.size(300.dp), contentAlignment = Alignment.Center) {
             Box(
                 Modifier.size(300.dp)
-                    .graphicsLayer { val s = if (on) pulse.value else 1f; scaleX = s; scaleY = s }
-                    .background(Brush.radialGradient(listOf(a.copy(alpha = if (on) .38f else .2f), Color.Transparent)), CircleShape)
+                    .graphicsLayer {
+                        val s = if (on) pulse.value else 1f
+                        scaleX = s; scaleY = s
+                        alpha = if (on) 1f else 0.55f
+                    }
+                    .background(glowBrush, CircleShape)
             )
+            Box(Modifier.size(274.dp).graphicsLayer { rotationZ = -rot.value }.border(1.5.dp, ringThin, CircleShape))
+            Box(Modifier.size(244.dp).graphicsLayer { rotationZ = rot.value }.border(18.dp, ringBrush, CircleShape))
             Box(
-                Modifier.size(272.dp).graphicsLayer { rotationZ = -rot.value }
-                    .border(1.5.dp, Brush.sweepGradient(listOf(a.copy(alpha = .8f), Color.Transparent, b.copy(alpha = .8f), Color.Transparent, a.copy(alpha = .8f))), CircleShape)
-            )
-            Box(
-                Modifier.size(226.dp).graphicsLayer { rotationZ = rot.value }
-                    .border(9.dp, Brush.sweepGradient(listOf(a, b, a)), CircleShape)
-            )
-            Box(
-                Modifier.size(200.dp).clip(CircleShape)
-                    .background(Brush.radialGradient(listOf(Color(0xFF16163F), Color(0xFF06061A))))
-                    .clickable { onToggle() },
+                Modifier.size(200.dp).clip(CircleShape).background(innerBrush).clickable { onToggle() },
                 contentAlignment = Alignment.Center
             ) { PowerIcon(Color.White, 84.dp) }
         }
-        Spacer(Modifier.height(6.dp))
-        Text(if (on) "قطع اتصال DNS" else "اتصال به DNS", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.SemiBold)
 
-        Spacer(Modifier.height(26.dp))
-        val cs = RoundedCornerShape(26.dp)
+        Spacer(Modifier.height(10.dp))
+        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.weight(1f).height(2.dp).background(Brush.horizontalGradient(listOf(Color.Transparent, Cyan))))
+                Text(if (on) "قطع اتصال DNS" else "اتصال به DNS", color = Color.White, fontSize = 26.sp,
+                    fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 14.dp))
+                Box(Modifier.weight(1f).height(2.dp).background(Brush.horizontalGradient(listOf(Cyan, Color.Transparent))))
+            }
+        }
+
+        val cs = RoundedCornerShape(40.dp)
         Row(
-            Modifier.fillMaxWidth().clip(cs).background(Color.White.copy(alpha = .05f))
-                .cycBorder(hue, cs, 1.5.dp).clickable { onOpenSheet() }.padding(14.dp),
+            Modifier.fillMaxWidth().padding(top = 26.dp).clip(cs).background(CardBg).border(1.5.dp, gradBrush, cs)
+                .clickable { onOpenSheet() }.padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Badge(sel, 52.dp)
-            Spacer(Modifier.width(12.dp))
+            Box(Modifier.size(46.dp).background(Color(0xFF0E0A22), CircleShape), contentAlignment = Alignment.Center) {
+                Chevron(Color.White, true)
+            }
+            Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
-                Text("سرور انتخاب شده", color = Muted, fontSize = 12.sp)
-                Text(sel.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 2)
+                Text("سرور انتخاب شده", color = Muted, fontSize = 13.sp)
+                Text(selName, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 17.sp, maxLines = 1)
             }
             Text("انتخاب سرور", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp,
-                modifier = Modifier.clip(RoundedCornerShape(50))
-                    .background(Brush.horizontalGradient(listOf(a, b)))
-                    .padding(horizontal = 16.dp, vertical = 9.dp))
+                modifier = Modifier.clip(pill)
+                    .background(Brush.horizontalGradient(listOf(Pink, Blue, Cyan)))
+                    .padding(horizontal = 18.dp, vertical = 11.dp))
         }
-        Spacer(Modifier.height(24.dp))
+
+        Row(
+            Modifier.fillMaxWidth().padding(top = 18.dp).clip(cs).background(CardBg).border(1.5.dp, gradBrush, cs)
+                .clickable { onTelegram() }.padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Chevron(Color.White, true)
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("کانال تلگرامی جهت ارتباط", color = Muted, fontSize = 13.sp)
+                Text(TELEGRAM_URL, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp, maxLines = 1)
+            }
+            TelegramIcon()
+        }
+        Spacer(Modifier.height(28.dp))
+    }
+}
+
+@Composable
+fun ServerRow(s: Srv, iconId: Int, selected: Boolean, fav: Boolean, onSelect: () -> Unit, onFav: () -> Unit) {
+    val shape = RoundedCornerShape(24.dp)
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 5.dp).clip(shape)
+            .background(if (selected) Color(0x2200E5FF) else Color(0xFF0A0F2C))
+            .border(if (selected) 2.dp else 1.dp, if (selected) gradBrush else dimBrush, shape)
+            .clickable(onClick = onSelect).padding(10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Badge(s, iconId, 54.dp)
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(s.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp, maxLines = 2)
+            Text(s.desc, color = Muted, fontSize = 13.sp, maxLines = 1)
+        }
+        Box(Modifier.clip(CircleShape).clickable(onClick = onFav).padding(8.dp)) { StarIcon(fav) }
+        Chevron(Blue, false)
+        Spacer(Modifier.width(4.dp))
     }
 }
 
 @Composable
 fun App() {
     val ctx = LocalContext.current
+    val uri = LocalUriHandler.current
     val prefs = remember { ctx.getSharedPreferences("neon", 0) }
+    val iconIds = remember {
+        servers.associate { s ->
+            s.id to ctx.resources.getIdentifier("g_" + s.icon, "drawable", ctx.packageName)
+        }
+    }
+    val version = remember {
+        try { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName ?: "" } catch (e: Exception) { "" }
+    }
     var sel by remember { mutableStateOf(servers.firstOrNull { it.id == prefs.getString("sel", "") } ?: servers[0]) }
     val favs = remember { mutableStateListOf<String>().apply { addAll(prefs.getStringSet("favs", emptySet())!!) } }
-    val pings = remember { mutableStateMapOf<String, Int>() }
     var query by remember { mutableStateOf("") }
     var cat by remember { mutableStateOf("همه") }
-    var showAbout by remember { mutableStateOf(false) }
     var showSheet by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
-    val uri = LocalUriHandler.current
     val on = VpnState.connected
 
     fun start(ip: String) { ctx.startService(Intent(ctx, DnsVpnService::class.java).putExtra("dns", ip)) }
@@ -369,39 +379,26 @@ fun App() {
             if (i != null) launcher.launch(i) else start(sel.ip)
         }
     }
-    fun measure() {
-        pings.clear()
-        servers.map { it.ip }.distinct().forEach { ip -> scope.launch(Dispatchers.IO) { pings[ip] = ping(ip) } }
-    }
-    LaunchedEffect(Unit) { measure() }
     BackHandler(enabled = showSheet) { showSheet = false }
 
     val t = rememberInfiniteTransition(label = "t")
-    val hue = t.animateFloat(0f, 1f, infiniteRepeatable(tween(9000, easing = LinearEasing)), label = "h")
-    val rot = t.animateFloat(0f, 360f, infiniteRepeatable(tween(8000, easing = LinearEasing)), label = "r")
-    val pulse = t.animateFloat(0.95f, 1.05f,
-        infiniteRepeatable(tween(1500, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "p")
+    val rot = t.animateFloat(0f, 360f, infiniteRepeatable(tween(10000, easing = LinearEasing)), label = "r")
+    val pulse = t.animateFloat(0.96f, 1.04f,
+        infiniteRepeatable(tween(1600, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "p")
 
-    val q = query.trim().lowercase()
-    val shown = servers.filter { s ->
-        (cat == "همه" || (cat == "علاقه‌مندی‌ها" && s.id in favs) || s.cat == cat) &&
-            (q.isEmpty() || (s.name + " " + s.desc + " " + s.tags).lowercase().contains(q))
-    }.sortedByDescending { it.id in favs }
-
-    Box(
-        Modifier.fillMaxSize().background(Color(0xFF05040F)).drawBehind {
-            val c1 = cycle(hue.value, 0.2f)
-            val c2 = cycle(hue.value, 0.7f)
-            drawCircle(Brush.radialGradient(listOf(c1.copy(alpha = .38f), Color.Transparent),
-                center = Offset(0f, size.height * .12f), radius = size.width * .8f),
-                radius = size.width * .8f, center = Offset(0f, size.height * .12f))
-            drawCircle(Brush.radialGradient(listOf(c2.copy(alpha = .3f), Color.Transparent),
-                center = Offset(size.width, size.height * .5f), radius = size.width * .8f),
-                radius = size.width * .8f, center = Offset(size.width, size.height * .5f))
+    val shown by remember {
+        derivedStateOf {
+            val q = query.trim().lowercase()
+            servers.filter { s ->
+                (cat == "همه" || (cat == "علاقه‌مندی‌ها" && s.id in favs) || s.cat == cat) &&
+                    (q.isEmpty() || (s.name + " " + s.desc + " " + s.tags).lowercase().contains(q))
+            }.sortedByDescending { it.id in favs }
         }
-    ) {
-        MainScreen(on, sel, hue, rot, pulse,
-            onToggle = { toggle() }, onOpenSheet = { showSheet = true }, onSettings = { showAbout = true })
+    }
+
+    Box(Modifier.fillMaxSize().neonBg()) {
+        MainScreen(on, sel.name, version, rot, pulse,
+            onToggle = { toggle() }, onOpenSheet = { showSheet = true }, onTelegram = { uri.openUri(TELEGRAM_URL) })
 
         AnimatedVisibility(showSheet, enter = fadeIn(), exit = fadeOut()) {
             Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .6f))
@@ -415,7 +412,7 @@ fun App() {
             Column(
                 Modifier.fillMaxWidth().fillMaxHeight(0.8f).clip(sheetShape)
                     .background(Brush.verticalGradient(listOf(Color(0xFF0B1436), Color(0xFF0E0A2C))))
-                    .cycBorder(hue, sheetShape, 2.dp)
+                    .border(2.dp, gradBrush, sheetShape)
                     .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { }
                     .navigationBarsPadding().padding(horizontal = 16.dp)
             ) {
@@ -435,7 +432,7 @@ fun App() {
                             Text("انتخاب سرور DNS", color = Cyan, fontSize = 24.sp, fontWeight = FontWeight.Bold)
                         }
                         Box(
-                            Modifier.size(52.dp).clip(CircleShape).border(1.5.dp, Purple, CircleShape)
+                            Modifier.size(52.dp).clip(CircleShape).border(1.5.dp, Violet, CircleShape)
                                 .clickable { showSheet = false },
                             contentAlignment = Alignment.Center
                         ) {
@@ -456,7 +453,8 @@ fun App() {
                     modifier = Modifier.fillMaxWidth(),
                     decorationBox = { inner ->
                         Row(
-                            Modifier.fillMaxWidth().clip(RoundedCornerShape(30.dp)).background(Color(0xFF1A2145)).padding(horizontal = 18.dp, vertical = 16.dp),
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(30.dp)).background(Color(0xFF1A2145))
+                                .padding(horizontal = 18.dp, vertical = 16.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Canvas(Modifier.size(22.dp)) {
@@ -475,10 +473,9 @@ fun App() {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(cats) { c ->
                         val act = c == cat
-                        val cs = RoundedCornerShape(50)
                         Text(c, color = if (act) Color(0xFF050B1A) else Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold,
-                            modifier = Modifier.clip(cs)
-                                .background(if (act) Brush.horizontalGradient(listOf(Cyan, Color(0xFF7AF0FF))) else Brush.horizontalGradient(listOf(Color.White.copy(alpha = .08f), Color.White.copy(alpha = .08f))))
+                            modifier = Modifier.clip(RoundedCornerShape(50))
+                                .background(if (act) Brush.horizontalGradient(listOf(Cyan, Color(0xFF7AF0FF))) else Brush.horizontalGradient(listOf(Color(0x14FFFFFF), Color(0x14FFFFFF))))
                                 .clickable { cat = c }.padding(horizontal = 15.dp, vertical = 7.dp))
                     }
                 }
@@ -487,68 +484,23 @@ fun App() {
                         Text("موردی پیدا نشد", color = Muted, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(24.dp))
                     }
                     items(shown, key = { it.id }) { s ->
-                        val selected = s.id == sel.id
-                        val fav = s.id in favs
-                        val p = pings[s.ip]
-                        val level = when { p == null || p < 0 -> 0; p < 60 -> 4; p < 100 -> 3; p < 160 -> 2; else -> 1 }
-                        val pc = when { p == null -> Color.Gray; p < 0 -> Red; p < 100 -> Green; p < 160 -> Color(0xFFFFD43B); else -> Color(0xFFFF8A3D) }
-                        val shape = RoundedCornerShape(24.dp)
-                        Row(
-                            Modifier.fillMaxWidth().padding(vertical = 5.dp).clip(shape)
-                                .background(if (selected) Cyan.copy(alpha = .12f) else Color(0xFF0A0F2C))
-                                .cycBorder(hue, shape, 1.5.dp)
-                                .clickable {
-                                    sel = s
-                                    prefs.edit().putString("sel", s.id).apply()
-                                    if (VpnState.connected) start(s.ip)
-                                    showSheet = false
-                                }
-                                .padding(horizontal = 10.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Badge(s, 54.dp)
-                            Spacer(Modifier.width(12.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text(s.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp, maxLines = 2)
-                                Text(s.desc, color = Muted, fontSize = 13.sp, maxLines = 1)
+                        ServerRow(
+                            s = s, iconId = iconIds[s.id] ?: 0, selected = s.id == sel.id, fav = s.id in favs,
+                            onSelect = {
+                                sel = s
+                                prefs.edit().putString("sel", s.id).apply()
+                                if (VpnState.connected) start(s.ip)
+                                showSheet = false
+                            },
+                            onFav = {
+                                if (s.id in favs) favs.remove(s.id) else favs.add(s.id)
+                                prefs.edit().putStringSet("favs", favs.toSet()).apply()
                             }
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Bars(level, pc)
-                                Text(if (p == null) "..." else if (p < 0) "—" else "${p}ms", color = pc, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                            }
-                            Box(
-                                Modifier.clip(CircleShape).clickable {
-                                    if (fav) favs.remove(s.id) else favs.add(s.id)
-                                    prefs.edit().putStringSet("favs", favs.toSet()).apply()
-                                }.padding(8.dp)
-                            ) {
-                                Canvas(Modifier.size(22.dp)) {
-                                    val sp2 = starPath(size.width / 2, size.height / 2, size.width / 2)
-                                    if (fav) drawPath(sp2, Color(0xFFFFD43B)) else drawPath(sp2, Muted, style = Stroke(2.dp.toPx()))
-                                }
-                            }
-                            Chevron(Blue)
-                            Spacer(Modifier.width(4.dp))
-                        }
+                        )
                     }
                     item { Spacer(Modifier.height(16.dp)) }
                 }
             }
         }
     }
-
-    if (showAbout) AlertDialog(
-        onDismissRequest = { showAbout = false },
-        containerColor = Color(0xFF0F1438), titleContentColor = Gold, textContentColor = Color.White,
-        title = { Text("PingoDNS") },
-        text = {
-            Column {
-                Text("برنامه تغییر DNS مخصوص گیمینگ.\nفقط ترافیک DNS از سرور انتخابی عبور می‌کند و بقیه اینترنت شما تغییری نمی‌کند.")
-                Spacer(Modifier.height(14.dp))
-                Text("ارتباط با ما در تلگرام: @$TELEGRAM_ID", color = Cyan, fontWeight = FontWeight.Bold,
-                    modifier = Modifier.clickable { uri.openUri("https://t.me/$TELEGRAM_ID") })
-            }
-        },
-        confirmButton = { Text("باشه", color = Cyan, modifier = Modifier.clickable { showAbout = false }.padding(12.dp)) }
-    )
 }
