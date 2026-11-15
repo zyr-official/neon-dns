@@ -1,9 +1,18 @@
 package com.neon.dns
 
+import android.Manifest
 import android.app.Activity
+import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.media.AudioAttributes
+import android.media.AudioFormat
+import android.media.AudioTrack
 import android.net.VpnService
+import android.os.Build
 import android.os.Bundle
+import android.os.VibrationEffect
+import android.os.Vibrator
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -45,10 +54,14 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlin.math.PI
 import kotlin.math.roundToInt
+import kotlin.math.sin
+import kotlin.random.Random
 
 const val TELEGRAM_URL = "https://t.me/pingo_shops"
 
@@ -99,6 +112,58 @@ val servers = listOf(
 
 object VpnState { var connected by mutableStateOf(false) }
 
+// صدا: دو نت کوتاه که خود اپ می‌سازه (بدون فایل صوتی)
+object Beeper {
+    fun play(up: Boolean) {
+        Thread {
+            try {
+                val rate = 22050
+                val f = if (up) doubleArrayOf(660.0, 880.0) else doubleArrayOf(880.0, 600.0)
+                val per = (rate * 0.11).toInt()
+                val data = ShortArray(per * 2)
+                for (n in 0 until 2) {
+                    for (i in 0 until per) {
+                        val t = i.toDouble() / rate
+                        val env = Math.min(1.0, i / (rate * 0.008)) * Math.exp(-6.0 * i / per)
+                        val v = (Math.sin(2 * Math.PI * f[n] * t) * 0.7 + Math.sin(4 * Math.PI * f[n] * t) * 0.2) * env
+                        data[n * per + i] = (v * 9000).toInt().toShort()
+                    }
+                }
+                val track = AudioTrack.Builder()
+                    .setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build()
+                    )
+                    .setAudioFormat(
+                        AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                            .setSampleRate(rate).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build()
+                    )
+                    .setBufferSizeInBytes(data.size * 2)
+                    .setTransferMode(AudioTrack.MODE_STATIC)
+                    .build()
+                track.write(data, 0, data.size)
+                track.play()
+                Thread.sleep(450)
+                track.release()
+            } catch (e: Exception) { }
+        }.start()
+    }
+}
+
+fun buzz(ctx: Context, on: Boolean) {
+    try {
+        val v = ctx.getSystemService(Vibrator::class.java) ?: return
+        if (Build.VERSION.SDK_INT >= 26) {
+            val pattern = if (on) longArrayOf(0, 35, 60, 35) else longArrayOf(0, 60)
+            v.vibrate(VibrationEffect.createWaveform(pattern, -1))
+        } else {
+            @Suppress("DEPRECATION")
+            v.vibrate(if (on) 60L else 40L)
+        }
+    } catch (e: Exception) { }
+}
+
 fun catColors(c: String): List<Color> = when (c) {
     "اختصاصی" -> listOf(Cyan, Violet)
     "شوتر" -> listOf(Color(0xFFFF5470), Color(0xFFFF8A3D))
@@ -128,6 +193,32 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         setContent { CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) { App() } }
+    }
+}
+
+private class Spark(val x: Float, val speed: Int, val r: Float, val phase: Float, val col: Color)
+
+// ذره‌های نورانی که آروم بالا می‌رن (فقط یک Canvas سبک)
+@Composable
+fun Particles(t: State<Float>) {
+    val sparks = remember {
+        val rnd = Random(7)
+        val cols = listOf(Pink, Blue, Cyan, Violet)
+        List(16) { i -> Spark(rnd.nextFloat(), 1 + rnd.nextInt(3), 1.5f + rnd.nextFloat() * 2.5f, rnd.nextFloat(), cols[i % 4]) }
+    }
+    Canvas(Modifier.fillMaxSize()) {
+        val w = size.width
+        val h = size.height
+        val tt = t.value
+        for (sp in sparks) {
+            val prog = (tt * sp.speed * 0.5f + sp.phase) % 1f
+            val x = (sp.x + 0.03f * sin((prog * 6.283f + sp.phase * 6f).toDouble()).toFloat()) * w
+            val y = h * (1f - prog)
+            val a = sin(prog * PI).toFloat()
+            val rr = sp.r * density
+            drawCircle(sp.col.copy(alpha = a * 0.18f), rr * 4f, Offset(x, y))
+            drawCircle(sp.col.copy(alpha = a * 0.7f), rr, Offset(x, y))
+        }
     }
 }
 
@@ -208,7 +299,8 @@ fun TelegramIcon(w: Dp = 40.dp, h: Dp = 40.dp) {
 // صفحه اصلی: همه چیز با مختصات دقیق طرح (۸۳۹ × ۱۸۷۵) چیده می‌شه
 @Composable
 fun MainScreen(
-    on: Boolean, selName: String, version: String, rot: State<Float>, pulse: State<Float>,
+    on: Boolean, selName: String, version: String,
+    rot: State<Float>, pulse: State<Float>, ripple: State<Float>, pop: State<Float>,
     onToggle: () -> Unit, onOpenSheet: () -> Unit, onTelegram: () -> Unit
 ) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -256,14 +348,29 @@ fun MainScreen(
                         alpha = if (on) 1f else 0.5f
                     }
                     .background(glowBrush, CircleShape))
+                // موج‌های نوری که موقع اتصال از دکمه پخش می‌شن
+                for (k in 0 until 3) {
+                    Box(Modifier.at(158f, 550f, 524f, 524f)
+                        .graphicsLayer {
+                            val p = (ripple.value + k / 3f) % 1f
+                            val sc = 1f + p * 0.5f
+                            scaleX = sc; scaleY = sc
+                            alpha = if (on) (1f - p) * 0.45f else 0f
+                        }
+                        .border(dd(3f), Cyan, CircleShape))
+                }
                 Box(Modifier.at(115f, 507f, 610f, 610f).graphicsLayer { rotationZ = -rot.value }
                     .border(dd(2f), ringThin, CircleShape))
                 Box(Modifier.at(135f, 527f, 570f, 570f).border(dd(2f), faintRing, CircleShape))
                 Box(Modifier.at(158f, 550f, 524f, 524f).graphicsLayer { rotationZ = rot.value }
                     .border(dd(42f), ringBrush, CircleShape))
-                Box(Modifier.at(200f, 592f, 440f, 440f).background(innerBrush, CircleShape)
+                Box(Modifier.at(200f, 592f, 440f, 440f)
+                    .graphicsLayer { scaleX = pop.value; scaleY = pop.value }
+                    .background(innerBrush, CircleShape)
                     .border(dd(4f), Color(0x552F2A7A), CircleShape))
-                Box(Modifier.at(322f, 714f, 196f, 196f), contentAlignment = Alignment.Center) {
+                Box(Modifier.at(322f, 714f, 196f, 196f)
+                    .graphicsLayer { scaleX = pop.value; scaleY = pop.value },
+                    contentAlignment = Alignment.Center) {
                     PowerIcon(Color.White, dd(196f))
                 }
 
@@ -351,11 +458,13 @@ fun App() {
     var showSheet by remember { mutableStateOf(false) }
     val on = VpnState.connected
 
+    // پس‌زمینه (HD اگه آپلود شده باشه) و آیکون بازی‌ها پشت صحنه آماده می‌شن
     var bg by remember { mutableStateOf<ImageBitmap?>(null) }
     val icons = remember { mutableStateMapOf<String, ImageBitmap>() }
     LaunchedEffect(Unit) {
         withContext(Dispatchers.Default) {
-            val bgId = ctx.resources.getIdentifier("bg_main", "drawable", ctx.packageName)
+            var bgId = ctx.resources.getIdentifier("bg_hd", "drawable", ctx.packageName)
+            if (bgId == 0) bgId = ctx.resources.getIdentifier("bg_main", "drawable", ctx.packageName)
             if (bgId != 0) {
                 try { bg = ImageBitmap.imageResource(ctx.resources, bgId) } catch (e: Exception) { }
             }
@@ -368,8 +477,22 @@ fun App() {
         }
     }
 
+    // اجازه نمایش اعلان (فقط یک بار پرسیده می‌شه)
+    val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= 33 && !prefs.getBoolean("asked_notif", false) &&
+            ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            prefs.edit().putBoolean("asked_notif", true).apply()
+            notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
     fun start(s: Srv) {
-        ctx.startService(Intent(ctx, DnsVpnService::class.java).putExtra("dns", s.ip).putExtra("dns2", s.ip2))
+        ctx.startService(
+            Intent(ctx, DnsVpnService::class.java)
+                .putExtra("dns", s.ip).putExtra("dns2", s.ip2).putExtra("name", s.name.substringBefore(" ("))
+        )
     }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         if (it.resultCode == Activity.RESULT_OK) start(sel)
@@ -384,20 +507,26 @@ fun App() {
     }
     BackHandler(enabled = showSheet) { showSheet = false }
 
-    // پنل انتخاب سرور از قبل ساخته شده و فقط سر می‌خوره (بدون ساخت دوباره موقع باز شدن)
+    // پنل انتخاب سرور از قبل ساخته شده و فقط سر می‌خوره
     val sheetP = remember { Animatable(0f) }
     LaunchedEffect(showSheet) {
         sheetP.animateTo(if (showSheet) 1f else 0f, tween(260, easing = FastOutSlowInEasing))
     }
 
-    // وقتی پنل بازه، انیمیشن‌های پشتش متوقف می‌شن
+    // انیمیشن‌ها؛ وقتی پنل بازه متوقف می‌شن
     val rotA = remember { Animatable(0f) }
     val pulseA = remember { Animatable(1f) }
+    val rippleA = remember { Animatable(0f) }
+    val partA = remember { Animatable(0f) }
+    val popA = remember { Animatable(1f) }
     LaunchedEffect(showSheet) {
         if (!showSheet) {
-            while (true) {
-                rotA.animateTo(rotA.value + 360f, tween(10000, easing = LinearEasing))
-            }
+            while (true) { rotA.animateTo(rotA.value + 360f, tween(10000, easing = LinearEasing)) }
+        }
+    }
+    LaunchedEffect(showSheet) {
+        if (!showSheet) {
+            while (true) { partA.animateTo(partA.value + 1f, tween(40000, easing = LinearEasing)) }
         }
     }
     LaunchedEffect(showSheet, on) {
@@ -408,8 +537,35 @@ fun App() {
             }
         }
     }
+    LaunchedEffect(showSheet, on) {
+        if (on && !showSheet) {
+            while (true) {
+                rippleA.snapTo(0f)
+                rippleA.animateTo(1f, tween(2600, easing = LinearEasing))
+            }
+        }
+    }
+
+    // ضربه نرم روی دکمه + صدا و لرزش موقع تغییر وضعیت
+    var firstRun by remember { mutableStateOf(true) }
+    LaunchedEffect(on) {
+        popA.animateTo(0.9f, tween(90))
+        popA.animateTo(1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy))
+    }
+    LaunchedEffect(on) {
+        if (firstRun) {
+            firstRun = false
+        } else {
+            Beeper.play(on)
+            buzz(ctx, on)
+        }
+    }
+
     val rot = rotA.asState()
     val pulse = pulseA.asState()
+    val ripple = rippleA.asState()
+    val pop = popA.asState()
+    val partT = partA.asState()
 
     val shown by remember {
         derivedStateOf {
@@ -426,7 +582,8 @@ fun App() {
         if (b != null) {
             Image(bitmap = b, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
         }
-        MainScreen(on, sel.name.substringBefore(" ("), version, rot, pulse,
+        Particles(partT)
+        MainScreen(on, sel.name.substringBefore(" ("), version, rot, pulse, ripple, pop,
             onToggle = { toggle() }, onOpenSheet = { showSheet = true }, onTelegram = { uri.openUri(TELEGRAM_URL) })
 
         // پرده تیره
