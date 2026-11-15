@@ -1,8 +1,13 @@
 package com.neon.dns
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Intent
 import android.net.VpnService
+import android.os.Build
 import android.os.ParcelFileDescriptor
+import androidx.core.app.NotificationCompat
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.net.DatagramPacket
@@ -28,6 +33,7 @@ class DnsVpnService : VpnService() {
         val dns = intent?.getStringExtra("dns")
         if (dns == null || !ipRegex.matches(dns)) return START_NOT_STICKY
         val dns2 = intent.getStringExtra("dns2")?.takeIf { ipRegex.matches(it) }
+        val name = intent.getStringExtra("name") ?: ""
 
         running = false
         pool?.shutdownNow()
@@ -44,10 +50,40 @@ class DnsVpnService : VpnService() {
         tun = fd
         running = true
         VpnState.connected = true
+        showNote(name)
         val p = ThreadPoolExecutor(2, 12, 30, TimeUnit.SECONDS, ArrayBlockingQueue<Runnable>(128), ThreadPoolExecutor.DiscardPolicy())
         pool = p
         Thread { forward(fd, dns, dns2, p) }.start()
         return START_NOT_STICKY
+    }
+
+    private fun showNote(name: String) {
+        try {
+            val nm = getSystemService(NotificationManager::class.java) ?: return
+            if (Build.VERSION.SDK_INT >= 26) {
+                nm.createNotificationChannel(
+                    NotificationChannel("pingo_status", "وضعیت اتصال", NotificationManager.IMPORTANCE_LOW)
+                )
+            }
+            val open = PendingIntent.getActivity(
+                this, 0,
+                Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+                PendingIntent.FLAG_IMMUTABLE
+            )
+            val stop = PendingIntent.getService(
+                this, 1, Intent(this, DnsVpnService::class.java).setAction("STOP"), PendingIntent.FLAG_IMMUTABLE
+            )
+            val n = NotificationCompat.Builder(this, "pingo_status")
+                .setSmallIcon(R.drawable.ic_launcher_foreground)
+                .setContentTitle("PingoDNS متصل است")
+                .setContentText(name)
+                .setContentIntent(open)
+                .setOngoing(true)
+                .setOnlyAlertOnce(true)
+                .addAction(0, "قطع اتصال", stop)
+                .build()
+            nm.notify(1, n)
+        } catch (e: Exception) { }
     }
 
     private fun forward(fd: ParcelFileDescriptor, dns: String, dns2: String?, p: ThreadPoolExecutor) {
@@ -86,7 +122,6 @@ class DnsVpnService : VpnService() {
             val rb = ByteArray(4096)
             val rp = DatagramPacket(rb, rb.size)
             s.receive(rp)
-            // جواب باید شناسه همون درخواست رو داشته باشه (ضد جعل)
             if (rp.length < 12 || rb[0] != payload[0] || rb[1] != payload[1]) null else rb.copyOf(rp.length)
         } catch (e: Exception) { null } finally { s.close() }
     }
@@ -140,6 +175,7 @@ class DnsVpnService : VpnService() {
         try { tun?.close() } catch (e: Exception) { }
         tun = null
         cache.clear()
+        try { getSystemService(NotificationManager::class.java)?.cancel(1) } catch (e: Exception) { }
         stopSelf()
     }
 
