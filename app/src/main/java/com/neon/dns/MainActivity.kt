@@ -29,15 +29,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.*
-import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.imageResource
@@ -45,14 +43,17 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDirection
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
 
 const val TELEGRAM_URL = "https://t.me/pingo_shops"
 
@@ -63,14 +64,16 @@ val Cyan = Color(0xFF00E5FF)
 val Muted = Color(0xFF9AA8D0)
 val Green = Color(0xFF00FF7F)
 val Red = Color(0xFFFF2D55)
-val CardBg = Color(0xCC0A0620)
+val CardBg = Color(0xB3080418)
 
 val gradBrush = Brush.horizontalGradient(listOf(Pink, Violet, Blue, Cyan))
+val softBrush = Brush.horizontalGradient(listOf(Color(0x887B2FFF), Color(0xAA2F7BFF)))
 val dimBrush = Brush.horizontalGradient(listOf(Color(0x557B2FFF), Color(0x552F7BFF)))
 val titleBrush = Brush.horizontalGradient(listOf(Pink, Violet, Blue, Cyan))
 val ringBrush = Brush.sweepGradient(listOf(Pink, Violet, Blue, Cyan, Blue, Violet, Pink))
 val ringThin = Brush.sweepGradient(listOf(Color(0x00E41BFF), Color(0xAA7B2FFF), Color(0x002F7BFF), Color(0xAA00E5FF), Color(0x00E41BFF)))
-val glowBrush = Brush.radialGradient(listOf(Color(0x447B2FFF), Color.Transparent))
+val faintRing = Brush.sweepGradient(listOf(Color(0x40E41BFF), Color(0x402F7BFF), Color(0x4000E5FF), Color(0x40E41BFF)))
+val glowBrush = Brush.radialGradient(listOf(Color(0x557B2FFF), Color.Transparent))
 val innerBrush = Brush.radialGradient(listOf(Color(0xFF16163F), Color(0xFF05050F)))
 
 data class Srv(
@@ -118,83 +121,18 @@ fun starPath(cx: Float, cy: Float, r: Float): Path {
     return p
 }
 
-// پس‌زمینه نئونی: یک بار روی عکس نیم‌سایز کشیده می‌شه (با هاله نور واقعی) و بعد فقط نمایش داده می‌شه
-fun Modifier.neonBg(): Modifier = this.drawWithCache {
-    val fw = size.width
-    val fh = size.height
-    val sc = 0.5f
-    val bw = (fw * sc).toInt().coerceAtLeast(1)
-    val bh = (fh * sc).toInt().coerceAtLeast(1)
-    val bmp = ImageBitmap(bw, bh)
-    val w = bw.toFloat()
-    val h = bh.toFloat()
-    val u = density * sc
-    CanvasDrawScope().draw(this, layoutDirection, androidx.compose.ui.graphics.Canvas(bmp), Size(w, h)) {
-        drawRect(Color(0xFF02020A))
-        drawRect(Brush.radialGradient(listOf(Color(0x40B000FF), Color.Transparent), Offset(0f, h * 0.03f), w * 0.75f))
-        drawRect(Brush.radialGradient(listOf(Color(0x302F7BFF), Color.Transparent), Offset(w, h * 0.30f), w * 0.65f))
-        drawRect(Brush.radialGradient(listOf(Color(0x40B000FF), Color.Transparent), Offset(0f, h * 0.72f), w * 0.65f))
-        drawRect(Brush.radialGradient(listOf(Color(0x4000B7FF), Color.Transparent), Offset(w, h * 0.99f), w * 0.8f))
-
-        val grad = android.graphics.LinearGradient(
-            0f, 0f, w, h,
-            intArrayOf(Pink.toArgb(), Blue.toArgb(), Cyan.toArgb()), null,
-            android.graphics.Shader.TileMode.CLAMP
-        )
-        fun mkPaint(st: android.graphics.Paint.Style, width: Float, blur: Float, a: Int): android.graphics.Paint {
-            val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
-            p.style = st
-            p.strokeWidth = width
-            p.shader = grad
-            p.alpha = a
-            if (blur > 0f) p.maskFilter = android.graphics.BlurMaskFilter(blur, android.graphics.BlurMaskFilter.Blur.NORMAL)
-            return p
-        }
-        val fillP = mkPaint(android.graphics.Paint.Style.FILL, 0f, 14f * u, 46)
-        val glowP = mkPaint(android.graphics.Paint.Style.STROKE, 7f * u, 12f * u, 150)
-        val coreP = mkPaint(android.graphics.Paint.Style.STROKE, 1.8f * u, 0f, 235)
-
-        // x0,y0, c1x,c1y, c2x,c2y, x1,y1, فاصله موج دوم
-        val defs = listOf(
-            floatArrayOf(0f, 0.21f, 0.12f, 0.02f, 0.55f, 0.12f, 0.88f, 0f, 0.07f),
-            floatArrayOf(0f, 0.36f, 0.18f, 0.14f, 0.62f, 0.26f, 1f, 0.05f, 0.05f),
-            floatArrayOf(1f, 0.29f, 0.82f, 0.27f, 0.62f, 0.45f, 0.34f, 0.56f, 0.04f),
-            floatArrayOf(0f, 0.64f, 0.30f, 0.60f, 0.70f, 0.73f, 1f, 0.83f, 0.05f),
-            floatArrayOf(0f, 0.96f, 0.35f, 0.88f, 0.70f, 0.98f, 1f, 0.86f, 0.04f)
-        )
-        drawIntoCanvas { c ->
-            val nc = c.nativeCanvas
-            for (p in defs) {
-                val dy = p[8]
-                val a = android.graphics.Path()
-                a.moveTo(p[0] * w, p[1] * h)
-                a.cubicTo(p[2] * w, p[3] * h, p[4] * w, p[5] * h, p[6] * w, p[7] * h)
-                val b = android.graphics.Path()
-                b.moveTo(p[0] * w, (p[1] + dy) * h)
-                b.cubicTo(p[2] * w, (p[3] + dy) * h, p[4] * w, (p[5] + dy) * h, p[6] * w, (p[7] + dy) * h)
-                val r = android.graphics.Path(a)
-                r.lineTo(p[6] * w, (p[7] + dy) * h)
-                r.cubicTo(p[4] * w, (p[5] + dy) * h, p[2] * w, (p[3] + dy) * h, p[0] * w, (p[1] + dy) * h)
-                r.close()
-                nc.drawPath(r, fillP)
-                nc.drawPath(a, glowP)
-                nc.drawPath(b, glowP)
-                nc.drawPath(a, coreP)
-                nc.drawPath(b, coreP)
-            }
-        }
-    }
-    onDrawBehind {
-        drawImage(bmp, dstSize = IntSize(fw.toInt(), fh.toInt()), filterQuality = FilterQuality.Low)
-    }
-}
-
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         setContent { CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) { App() } }
     }
+}
+
+@Composable
+fun FaText(t: String, c: Color, size: TextUnit, w: FontWeight = FontWeight.Normal, align: TextAlign = TextAlign.Center, lines: Int = 1) {
+    Text(t, color = c, fontSize = size, fontWeight = w, textAlign = align, maxLines = lines,
+        overflow = TextOverflow.Ellipsis, style = TextStyle(textDirection = TextDirection.Rtl))
 }
 
 @Composable
@@ -231,8 +169,8 @@ fun PowerIcon(col: Color, sz: Dp) {
 }
 
 @Composable
-fun Chevron(col: Color, right: Boolean) {
-    Canvas(Modifier.size(14.dp, 20.dp)) {
+fun Chevron(col: Color, right: Boolean, w: Dp = 14.dp, h: Dp = 20.dp) {
+    Canvas(Modifier.size(w, h)) {
         val a = if (right) 0.2f else 0.8f
         val b = if (right) 0.8f else 0.2f
         val p = Path().apply {
@@ -240,7 +178,7 @@ fun Chevron(col: Color, right: Boolean) {
             lineTo(size.width * b, size.height * .5f)
             lineTo(size.width * a, size.height * .9f)
         }
-        drawPath(p, col, style = Stroke(2.5.dp.toPx(), cap = StrokeCap.Round))
+        drawPath(p, col, style = Stroke(size.width * 0.17f, cap = StrokeCap.Round))
     }
 }
 
@@ -253,119 +191,131 @@ fun StarIcon(fav: Boolean) {
 }
 
 @Composable
-fun TelegramIcon() {
-    Canvas(Modifier.size(40.dp)) {
-        val w = size.width
-        val h = size.height
+fun TelegramIcon(w: Dp = 40.dp, h: Dp = 40.dp) {
+    Canvas(Modifier.size(w, h)) {
+        val pw = size.width
+        val ph = size.height
         val p = Path().apply {
-            moveTo(.04f * w, .46f * h); lineTo(.96f * w, .08f * h)
-            lineTo(.66f * w, .92f * h); lineTo(.47f * w, .60f * h); close()
+            moveTo(.04f * pw, .46f * ph); lineTo(.96f * pw, .08f * ph)
+            lineTo(.66f * pw, .92f * ph); lineTo(.47f * pw, .60f * ph); close()
         }
         drawPath(p, Brush.linearGradient(listOf(Cyan, Blue)))
     }
 }
 
+// صفحه اصلی: همه چیز با مختصات دقیق طرح (۸۳۹ × ۱۸۷۵) چیده می‌شه
 @Composable
 fun MainScreen(
     on: Boolean, selName: String, version: String, rot: State<Float>, pulse: State<Float>,
     onToggle: () -> Unit, onOpenSheet: () -> Unit, onTelegram: () -> Unit
 ) {
-    val pill = RoundedCornerShape(50)
-    Column(
-        Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()
-            .verticalScroll(rememberScrollState()).padding(horizontal = 20.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val dens = LocalDensity.current
+        val bw = constraints.maxWidth.toFloat()
+        val bh = constraints.maxHeight.toFloat()
+        val s = maxOf(bw / 839f, bh / 1875f)
+        val ox = (bw - 839f * s) / 2f
+        val oy = (bh - 1875f * s) / 2f
+
+        fun dd(v: Float): Dp = with(dens) { (v * s).toDp() }
+        fun ss(v: Float): TextUnit = with(dens) { dd(v).toSp() }
+        fun Modifier.at(x: Float, y: Float, w: Float, h: Float): Modifier =
+            this.offset { IntOffset((ox + x * s).roundToInt(), (oy + y * s).roundToInt()) }
+                .size(dd(w), dd(h))
+
         CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-            Row(Modifier.fillMaxWidth().padding(top = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("PINGODNS", style = TextStyle(brush = titleBrush, fontSize = 30.sp, fontWeight = FontWeight.Black),
-                    modifier = Modifier.weight(1f))
-                Text("v$version", color = Cyan, fontSize = 13.sp, fontWeight = FontWeight.Bold,
-                    modifier = Modifier.clip(pill).border(1.dp, gradBrush, pill).padding(horizontal = 12.dp, vertical = 5.dp))
-            }
-        }
+            Box(Modifier.fillMaxSize()) {
+                val pill = RoundedCornerShape(50)
 
-        val st = RoundedCornerShape(30.dp)
-        Column(
-            Modifier.padding(top = 24.dp).fillMaxWidth(0.74f).clip(st).background(CardBg)
-                .border(1.5.dp, gradBrush, st).padding(vertical = 12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(10.dp).background(if (on) Green else Violet, CircleShape))
-                Spacer(Modifier.width(14.dp))
-                Text("وضعیت اتصال", color = Color.White, fontSize = 15.sp)
-                Spacer(Modifier.width(14.dp))
-                Box(Modifier.size(10.dp).background(if (on) Green else Red, CircleShape))
-            }
-            Text(if (on) "متصل شد" else "متصل نیست", color = if (on) Green else Pink,
-                fontSize = 22.sp, fontWeight = FontWeight.Bold)
-        }
+                // عنوان و نسخه
+                Box(Modifier.at(57f, 36f, 420f, 68f), contentAlignment = Alignment.CenterStart) {
+                    Text("PINGODNS", maxLines = 1,
+                        style = TextStyle(brush = titleBrush, fontSize = ss(58f), fontWeight = FontWeight.Black))
+                }
+                Box(Modifier.at(612f, 47f, 170f, 46f).clip(pill).border(dd(2f), gradBrush, pill),
+                    contentAlignment = Alignment.Center) {
+                    Text("v$version", color = Cyan, fontSize = ss(24f), fontWeight = FontWeight.Bold, maxLines = 1)
+                }
 
-        Spacer(Modifier.height(30.dp))
-        Box(Modifier.size(300.dp), contentAlignment = Alignment.Center) {
-            Box(
-                Modifier.size(300.dp)
+                // کارت وضعیت
+                val stShape = RoundedCornerShape(dd(62f))
+                Box(Modifier.at(200f, 197f, 440f, 141f).clip(stShape).background(CardBg).border(dd(3f), softBrush, stShape))
+                Box(Modifier.at(269f, 225f, 26f, 26f).background(if (on) Green else Violet, CircleShape))
+                Box(Modifier.at(540f, 224f, 28f, 28f).background(if (on) Green else Red, CircleShape))
+                Box(Modifier.at(300f, 210f, 240f, 56f), contentAlignment = Alignment.Center) {
+                    FaText("وضعیت اتصال", Color.White, ss(31f))
+                }
+                Box(Modifier.at(210f, 262f, 420f, 62f), contentAlignment = Alignment.Center) {
+                    FaText(if (on) "متصل شد" else "متصل نیست", if (on) Green else Pink, ss(42f), FontWeight.Bold)
+                }
+
+                // دکمه پاور
+                Box(Modifier.at(90f, 482f, 660f, 660f)
                     .graphicsLayer {
-                        val s = if (on) pulse.value else 1f
-                        scaleX = s; scaleY = s
-                        alpha = if (on) 1f else 0.55f
+                        val k = if (on) pulse.value else 1f
+                        scaleX = k; scaleY = k
+                        alpha = if (on) 1f else 0.5f
                     }
-                    .background(glowBrush, CircleShape)
-            )
-            Box(Modifier.size(274.dp).graphicsLayer { rotationZ = -rot.value }.border(1.5.dp, ringThin, CircleShape))
-            Box(Modifier.size(244.dp).graphicsLayer { rotationZ = rot.value }.border(18.dp, ringBrush, CircleShape))
-            Box(
-                Modifier.size(200.dp).clip(CircleShape).background(innerBrush).clickable { onToggle() },
-                contentAlignment = Alignment.Center
-            ) { PowerIcon(Color.White, 84.dp) }
-        }
+                    .background(glowBrush, CircleShape))
+                Box(Modifier.at(115f, 507f, 610f, 610f).graphicsLayer { rotationZ = -rot.value }
+                    .border(dd(2f), ringThin, CircleShape))
+                Box(Modifier.at(135f, 527f, 570f, 570f).border(dd(2f), faintRing, CircleShape))
+                Box(Modifier.at(158f, 550f, 524f, 524f).graphicsLayer { rotationZ = rot.value }
+                    .border(dd(42f), ringBrush, CircleShape))
+                Box(Modifier.at(200f, 592f, 440f, 440f).clip(CircleShape).background(innerBrush)
+                    .border(dd(4f), Color(0x552F2A7A), CircleShape))
+                Box(Modifier.at(322f, 714f, 196f, 196f), contentAlignment = Alignment.Center) {
+                    PowerIcon(Color.White, dd(196f))
+                }
 
-        Spacer(Modifier.height(10.dp))
-        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.weight(1f).height(2.dp).background(Brush.horizontalGradient(listOf(Color.Transparent, Cyan))))
-                Text(if (on) "قطع اتصال DNS" else "اتصال به DNS", color = Color.White, fontSize = 26.sp,
-                    fontWeight = FontWeight.SemiBold, style = TextStyle(textDirection = TextDirection.Rtl),
-                    modifier = Modifier.padding(horizontal = 14.dp))
-                Box(Modifier.weight(1f).height(2.dp).background(Brush.horizontalGradient(listOf(Cyan, Color.Transparent))))
-            }
-        }
+                // اتصال به DNS
+                Box(Modifier.at(95f, 1219f, 137f, 3f).background(Brush.horizontalGradient(listOf(Color.Transparent, Cyan))))
+                Box(Modifier.at(606f, 1219f, 170f, 3f).background(Brush.horizontalGradient(listOf(Cyan, Color.Transparent))))
+                Box(Modifier.at(235f, 1180f, 370f, 80f), contentAlignment = Alignment.Center) {
+                    FaText(if (on) "قطع اتصال DNS" else "اتصال به DNS", Color.White, ss(48f), FontWeight.Medium)
+                }
 
-        val cs = RoundedCornerShape(40.dp)
-        Row(
-            Modifier.fillMaxWidth().padding(top = 26.dp).clip(cs).background(CardBg).border(1.5.dp, gradBrush, cs)
-                .clickable { onOpenSheet() }.padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(Modifier.size(46.dp).background(Color(0xFF0E0A22), CircleShape), contentAlignment = Alignment.Center) {
-                Chevron(Color.White, true)
-            }
-            Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f)) {
-                Text("سرور انتخاب شده", color = Muted, fontSize = 13.sp)
-                Text(selName, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 17.sp, maxLines = 1)
-            }
-            Text("انتخاب سرور", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp,
-                modifier = Modifier.clip(pill)
-                    .background(Brush.horizontalGradient(listOf(Pink, Blue, Cyan)))
-                    .padding(horizontal = 18.dp, vertical = 11.dp))
-        }
+                // کارت سرور انتخاب شده
+                val cardShape = RoundedCornerShape(dd(74f))
+                Box(Modifier.at(70f, 1295f, 702f, 148f).clip(cardShape).background(CardBg).border(dd(3f), gradBrush, cardShape))
+                Box(Modifier.at(658f, 1327f, 84f, 84f).background(Color(0xFF0E0A22), CircleShape),
+                    contentAlignment = Alignment.Center) {
+                    Chevron(Color.White, true, dd(18f), dd(30f))
+                }
+                Box(Modifier.at(322f, 1318f, 306f, 102f), contentAlignment = Alignment.CenterEnd) {
+                    Column(horizontalAlignment = Alignment.End) {
+                        FaText("سرور انتخاب شده", Muted, ss(27f), align = TextAlign.End)
+                        FaText(selName, Color.White, ss(34f), FontWeight.Bold, TextAlign.End, 2)
+                    }
+                }
+                Box(Modifier.at(102f, 1330f, 210f, 78f).clip(pill)
+                    .background(Brush.horizontalGradient(listOf(Pink, Blue, Cyan))),
+                    contentAlignment = Alignment.Center) {
+                    FaText("انتخاب سرور", Color.White, ss(31f), FontWeight.Bold)
+                }
 
-        Row(
-            Modifier.fillMaxWidth().padding(top = 18.dp).clip(cs).background(CardBg).border(1.5.dp, gradBrush, cs)
-                .clickable { onTelegram() }.padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Chevron(Color.White, true)
-            Spacer(Modifier.width(10.dp))
-            Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("کانال تلگرامی جهت ارتباط", color = Muted, fontSize = 13.sp)
-                Text(TELEGRAM_URL, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp, maxLines = 1)
+                // کارت تلگرام
+                val tShape = RoundedCornerShape(dd(66f))
+                Box(Modifier.at(96f, 1517f, 646f, 133f).clip(tShape).background(CardBg).border(dd(3f), gradBrush, tShape))
+                Box(Modifier.at(136f, 1548f, 84f, 72f), contentAlignment = Alignment.Center) {
+                    TelegramIcon(dd(84f), dd(72f))
+                }
+                Box(Modifier.at(678f, 1560f, 30f, 46f), contentAlignment = Alignment.Center) {
+                    Chevron(Color.White, true, dd(20f), dd(34f))
+                }
+                Box(Modifier.at(235f, 1532f, 430f, 102f), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        FaText("کانال تلگرامی جهت ارتباط", Muted, ss(28f))
+                        Text(TELEGRAM_URL, color = Color.White, fontSize = ss(33f), fontWeight = FontWeight.Bold, maxLines = 1)
+                    }
+                }
+
+                // لایه‌های لمسی (آخر که روی بقیه باشن)
+                Box(Modifier.at(200f, 592f, 440f, 440f).clip(CircleShape).clickable { onToggle() })
+                Box(Modifier.at(70f, 1295f, 702f, 148f).clip(cardShape).clickable { onOpenSheet() })
+                Box(Modifier.at(96f, 1517f, 646f, 133f).clip(tShape).clickable { onTelegram() })
             }
-            TelegramIcon()
         }
-        Spacer(Modifier.height(28.dp))
     }
 }
 
@@ -406,10 +356,15 @@ fun App() {
     var showSheet by remember { mutableStateOf(false) }
     val on = VpnState.connected
 
-    // آیکون بازی‌ها از همون اول پشت صحنه آماده می‌شن
+    // پس‌زمینه و آیکون بازی‌ها پشت صحنه آماده می‌شن
+    var bg by remember { mutableStateOf<ImageBitmap?>(null) }
     val icons = remember { mutableStateMapOf<String, ImageBitmap>() }
     LaunchedEffect(Unit) {
         withContext(Dispatchers.Default) {
+            val bgId = ctx.resources.getIdentifier("bg_main", "drawable", ctx.packageName)
+            if (bgId != 0) {
+                try { bg = ImageBitmap.imageResource(ctx.resources, bgId) } catch (e: Exception) { }
+            }
             servers.map { it.icon }.distinct().forEach { name ->
                 val id = ctx.resources.getIdentifier("g_$name", "drawable", ctx.packageName)
                 if (id != 0) {
@@ -464,8 +419,12 @@ fun App() {
         }
     }
 
-    Box(Modifier.fillMaxSize().neonBg()) {
-        MainScreen(on, sel.name, version, rot, pulse,
+    Box(Modifier.fillMaxSize().background(Color(0xFF02020A))) {
+        val b = bg
+        if (b != null) {
+            Image(bitmap = b, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+        }
+        MainScreen(on, sel.name.substringBefore(" ("), version, rot, pulse,
             onToggle = { toggle() }, onOpenSheet = { showSheet = true }, onTelegram = { uri.openUri(TELEGRAM_URL) })
 
         AnimatedVisibility(showSheet, enter = fadeIn(), exit = fadeOut()) {
