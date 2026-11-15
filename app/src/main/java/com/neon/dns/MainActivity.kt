@@ -33,21 +33,26 @@ import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.*
+import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalUriHandler
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.imageResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 const val TELEGRAM_URL = "https://t.me/pingo_shops"
 
@@ -113,37 +118,74 @@ fun starPath(cx: Float, cy: Float, r: Float): Path {
     return p
 }
 
+// پس‌زمینه نئونی: یک بار روی عکس نیم‌سایز کشیده می‌شه (با هاله نور واقعی) و بعد فقط نمایش داده می‌شه
 fun Modifier.neonBg(): Modifier = this.drawWithCache {
-    val w = size.width
-    val h = size.height
-    val glows = listOf(
-        Brush.radialGradient(listOf(Color(0x40B000FF), Color.Transparent), Offset(0f, h * 0.03f), w * 0.75f),
-        Brush.radialGradient(listOf(Color(0x302F7BFF), Color.Transparent), Offset(w, h * 0.30f), w * 0.65f),
-        Brush.radialGradient(listOf(Color(0x40B000FF), Color.Transparent), Offset(0f, h * 0.72f), w * 0.65f),
-        Brush.radialGradient(listOf(Color(0x4000B7FF), Color.Transparent), Offset(w, h * 0.99f), w * 0.8f)
-    )
-    fun wave(x0: Float, y0: Float, c1x: Float, c1y: Float, c2x: Float, c2y: Float, x1: Float, y1: Float) =
-        Path().apply {
-            moveTo(x0 * w, y0 * h)
-            cubicTo(c1x * w, c1y * h, c2x * w, c2y * h, x1 * w, y1 * h)
-        }
-    val waves = listOf(
-        wave(0f, 0.20f, 0.15f, 0.03f, 0.55f, 0.12f, 0.85f, 0f),
-        wave(0f, 0.28f, 0.20f, 0.08f, 0.60f, 0.20f, 1f, 0.02f),
-        wave(1f, 0.30f, 0.80f, 0.28f, 0.60f, 0.45f, 0.30f, 0.56f),
-        wave(0f, 0.63f, 0.30f, 0.60f, 0.70f, 0.72f, 1f, 0.82f),
-        wave(0f, 0.96f, 0.35f, 0.88f, 0.70f, 0.98f, 1f, 0.86f)
-    )
-    val wb = Brush.linearGradient(listOf(Pink, Blue, Cyan), Offset(0f, 0f), Offset(w, h))
-    val thin = Stroke(2.dp.toPx())
-    val thick = Stroke(14.dp.toPx())
-    onDrawBehind {
+    val fw = size.width
+    val fh = size.height
+    val sc = 0.5f
+    val bw = (fw * sc).toInt().coerceAtLeast(1)
+    val bh = (fh * sc).toInt().coerceAtLeast(1)
+    val bmp = ImageBitmap(bw, bh)
+    val w = bw.toFloat()
+    val h = bh.toFloat()
+    val u = density * sc
+    CanvasDrawScope().draw(this, layoutDirection, androidx.compose.ui.graphics.Canvas(bmp), Size(w, h)) {
         drawRect(Color(0xFF02020A))
-        glows.forEach { drawRect(it) }
-        waves.forEach { p ->
-            drawPath(p, wb, alpha = 0.10f, style = thick)
-            drawPath(p, wb, alpha = 0.80f, style = thin)
+        drawRect(Brush.radialGradient(listOf(Color(0x40B000FF), Color.Transparent), Offset(0f, h * 0.03f), w * 0.75f))
+        drawRect(Brush.radialGradient(listOf(Color(0x302F7BFF), Color.Transparent), Offset(w, h * 0.30f), w * 0.65f))
+        drawRect(Brush.radialGradient(listOf(Color(0x40B000FF), Color.Transparent), Offset(0f, h * 0.72f), w * 0.65f))
+        drawRect(Brush.radialGradient(listOf(Color(0x4000B7FF), Color.Transparent), Offset(w, h * 0.99f), w * 0.8f))
+
+        val grad = android.graphics.LinearGradient(
+            0f, 0f, w, h,
+            intArrayOf(Pink.toArgb(), Blue.toArgb(), Cyan.toArgb()), null,
+            android.graphics.Shader.TileMode.CLAMP
+        )
+        fun mkPaint(st: android.graphics.Paint.Style, width: Float, blur: Float, a: Int): android.graphics.Paint {
+            val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+            p.style = st
+            p.strokeWidth = width
+            p.shader = grad
+            p.alpha = a
+            if (blur > 0f) p.maskFilter = android.graphics.BlurMaskFilter(blur, android.graphics.BlurMaskFilter.Blur.NORMAL)
+            return p
         }
+        val fillP = mkPaint(android.graphics.Paint.Style.FILL, 0f, 14f * u, 46)
+        val glowP = mkPaint(android.graphics.Paint.Style.STROKE, 7f * u, 12f * u, 150)
+        val coreP = mkPaint(android.graphics.Paint.Style.STROKE, 1.8f * u, 0f, 235)
+
+        // x0,y0, c1x,c1y, c2x,c2y, x1,y1, فاصله موج دوم
+        val defs = listOf(
+            floatArrayOf(0f, 0.21f, 0.12f, 0.02f, 0.55f, 0.12f, 0.88f, 0f, 0.07f),
+            floatArrayOf(0f, 0.36f, 0.18f, 0.14f, 0.62f, 0.26f, 1f, 0.05f, 0.05f),
+            floatArrayOf(1f, 0.29f, 0.82f, 0.27f, 0.62f, 0.45f, 0.34f, 0.56f, 0.04f),
+            floatArrayOf(0f, 0.64f, 0.30f, 0.60f, 0.70f, 0.73f, 1f, 0.83f, 0.05f),
+            floatArrayOf(0f, 0.96f, 0.35f, 0.88f, 0.70f, 0.98f, 1f, 0.86f, 0.04f)
+        )
+        drawIntoCanvas { c ->
+            val nc = c.nativeCanvas
+            for (p in defs) {
+                val dy = p[8]
+                val a = android.graphics.Path()
+                a.moveTo(p[0] * w, p[1] * h)
+                a.cubicTo(p[2] * w, p[3] * h, p[4] * w, p[5] * h, p[6] * w, p[7] * h)
+                val b = android.graphics.Path()
+                b.moveTo(p[0] * w, (p[1] + dy) * h)
+                b.cubicTo(p[2] * w, (p[3] + dy) * h, p[4] * w, (p[5] + dy) * h, p[6] * w, (p[7] + dy) * h)
+                val r = android.graphics.Path(a)
+                r.lineTo(p[6] * w, (p[7] + dy) * h)
+                r.cubicTo(p[4] * w, (p[5] + dy) * h, p[2] * w, (p[3] + dy) * h, p[0] * w, (p[1] + dy) * h)
+                r.close()
+                nc.drawPath(r, fillP)
+                nc.drawPath(a, glowP)
+                nc.drawPath(b, glowP)
+                nc.drawPath(a, coreP)
+                nc.drawPath(b, coreP)
+            }
+        }
+    }
+    onDrawBehind {
+        drawImage(bmp, dstSize = IntSize(fw.toInt(), fh.toInt()), filterQuality = FilterQuality.Low)
     }
 }
 
@@ -156,11 +198,11 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun Badge(s: Srv, iconId: Int, size: Dp) {
+fun Badge(s: Srv, icon: ImageBitmap?, size: Dp) {
     val shape = RoundedCornerShape(size * 0.24f)
-    if (iconId != 0) {
+    if (icon != null) {
         Image(
-            painter = painterResource(iconId), contentDescription = null, contentScale = ContentScale.Crop,
+            bitmap = icon, contentDescription = null, contentScale = ContentScale.Crop,
             modifier = Modifier.size(size).clip(shape).background(Color(0xFF0D0D0D))
         )
     } else {
@@ -328,7 +370,7 @@ fun MainScreen(
 }
 
 @Composable
-fun ServerRow(s: Srv, iconId: Int, selected: Boolean, fav: Boolean, onSelect: () -> Unit, onFav: () -> Unit) {
+fun ServerRow(s: Srv, icon: ImageBitmap?, selected: Boolean, fav: Boolean, onSelect: () -> Unit, onFav: () -> Unit) {
     val shape = RoundedCornerShape(24.dp)
     Row(
         Modifier.fillMaxWidth().padding(vertical = 5.dp).clip(shape)
@@ -337,7 +379,7 @@ fun ServerRow(s: Srv, iconId: Int, selected: Boolean, fav: Boolean, onSelect: ()
             .clickable(onClick = onSelect).padding(10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Badge(s, iconId, 54.dp)
+        Badge(s, icon, 54.dp)
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(s.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp, maxLines = 2)
@@ -354,11 +396,6 @@ fun App() {
     val ctx = LocalContext.current
     val uri = LocalUriHandler.current
     val prefs = remember { ctx.getSharedPreferences("neon", 0) }
-    val iconIds = remember {
-        servers.associate { s ->
-            s.id to ctx.resources.getIdentifier("g_" + s.icon, "drawable", ctx.packageName)
-        }
-    }
     val version = remember {
         try { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName ?: "" } catch (e: Exception) { "" }
     }
@@ -368,6 +405,19 @@ fun App() {
     var cat by remember { mutableStateOf("همه") }
     var showSheet by remember { mutableStateOf(false) }
     val on = VpnState.connected
+
+    // آیکون بازی‌ها از همون اول پشت صحنه آماده می‌شن
+    val icons = remember { mutableStateMapOf<String, ImageBitmap>() }
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.Default) {
+            servers.map { it.icon }.distinct().forEach { name ->
+                val id = ctx.resources.getIdentifier("g_$name", "drawable", ctx.packageName)
+                if (id != 0) {
+                    try { icons[name] = ImageBitmap.imageResource(ctx.resources, id) } catch (e: Exception) { }
+                }
+            }
+        }
+    }
 
     fun start(ip: String) { ctx.startService(Intent(ctx, DnsVpnService::class.java).putExtra("dns", ip)) }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
@@ -383,10 +433,26 @@ fun App() {
     }
     BackHandler(enabled = showSheet) { showSheet = false }
 
-    val t = rememberInfiniteTransition(label = "t")
-    val rot = t.animateFloat(0f, 360f, infiniteRepeatable(tween(10000, easing = LinearEasing)), label = "r")
-    val pulse = t.animateFloat(0.96f, 1.04f,
-        infiniteRepeatable(tween(1600, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "p")
+    // وقتی صفحه انتخاب سرور بازه، انیمیشن‌های پشتش متوقف می‌شن تا لگ نکنه
+    val rotA = remember { Animatable(0f) }
+    val pulseA = remember { Animatable(1f) }
+    LaunchedEffect(showSheet) {
+        if (!showSheet) {
+            while (true) {
+                rotA.animateTo(rotA.value + 360f, tween(10000, easing = LinearEasing))
+            }
+        }
+    }
+    LaunchedEffect(showSheet, on) {
+        if (on && !showSheet) {
+            while (true) {
+                pulseA.animateTo(1.04f, tween(1600, easing = FastOutSlowInEasing))
+                pulseA.animateTo(0.96f, tween(1600, easing = FastOutSlowInEasing))
+            }
+        }
+    }
+    val rot = rotA.asState()
+    val pulse = pulseA.asState()
 
     val shown by remember {
         derivedStateOf {
@@ -488,7 +554,7 @@ fun App() {
                     }
                     items(shown, key = { it.id }) { s ->
                         ServerRow(
-                            s = s, iconId = iconIds[s.id] ?: 0, selected = s.id == sel.id, fav = s.id in favs,
+                            s = s, icon = icons[s.icon], selected = s.id == sel.id, fav = s.id in favs,
                             onSelect = {
                                 sel = s
                                 prefs.edit().putString("sel", s.id).apply()
