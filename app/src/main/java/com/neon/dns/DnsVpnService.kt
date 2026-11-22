@@ -22,6 +22,9 @@ class DnsVpnService : VpnService() {
     private var tun: ParcelFileDescriptor? = null
     private var pool: ThreadPoolExecutor? = null
     @Volatile private var running = false
+    @Volatile private var gen = 0
+    @Volatile private var t1: InetAddress? = null
+    @Volatile private var t2: InetAddress? = null
 
     private class Cached(val data: ByteArray, val exp: Long)
     private val cache = ConcurrentHashMap<String, Cached>()
@@ -35,25 +38,59 @@ class DnsVpnService : VpnService() {
         val dns2 = intent.getStringExtra("dns2")?.takeIf { ipRegex.matches(it) }
         val name = intent.getStringExtra("name") ?: ""
 
+        // اگه تنظیمات امضاشده از راه دور برای این سرور آی‌پی داشته باشه، همون استفاده می‌شه
+        val sid = RemoteConfig.idByName(name)
+        val remote = RemoteConfig.ipsFor(sid)
+        val a = remote?.first ?: dns
+        val b = remote?.second ?: dns2 ?: a
+
         running = false
+        gen++
+        val myGen = gen
         pool?.shutdownNow()
         try { tun?.close() } catch (e: Exception) { }
         cache.clear()
 
-        val fd = Builder()
+        val builder = Builder()
             .setSession("PingoDNS")
             .setBlocking(true)
             .addAddress("10.0.0.2", 32)
             .addDnsServer("10.0.0.1")
             .addRoute("10.0.0.1", 32)
-            .establish() ?: return START_NOT_STICKY
+        // خود اپ از VPN مستثنی می‌شه تا بتونه تنظیمات جدید رو حتی وقتی DNS قبلی خرابه بگیره
+        try { builder.addDisallowedApplication(packageName) } catch (e: Exception) { }
+        val fd = builder.establish() ?: return START_NOT_STICKY
+
         tun = fd
+        t1 = InetAddress.getByName(a)
+        t2 = InetAddress.getByName(b)
         running = true
         VpnState.connected = true
         showNote(name)
         val p = ThreadPoolExecutor(2, 12, 30, TimeUnit.SECONDS, ArrayBlockingQueue<Runnable>(128), ThreadPoolExecutor.DiscardPolicy())
         pool = p
-        Thread { forward(fd, dns, dns2, p) }.start()
+        Thread { forward(fd, p) }.start()
+
+        // هر ۳۰ ثانیه تنظیمات رو چک می‌کنه و اگه آی‌پی عوض شده بود فوری جایگزین می‌کنه
+        Thread {
+            while (running && gen == myGen) {
+                try { Thread.sleep(30_000) } catch (e: InterruptedException) { break }
+                if (!running || gen != myGen) break
+                try {
+                    RemoteConfig.fetchNow(this)
+                    val r = RemoteConfig.ipsFor(sid)
+                    if (r != null) {
+                        val n1 = InetAddress.getByName(r.first)
+                        val n2 = InetAddress.getByName(r.second)
+                        if (n1 != t1 || n2 != t2) {
+                            t1 = n1
+                            t2 = n2
+                            cache.clear()
+                        }
+                    }
+                } catch (e: Exception) { }
+            }
+        }.also { it.isDaemon = true }.start()
         return START_NOT_STICKY
     }
 
@@ -86,11 +123,9 @@ class DnsVpnService : VpnService() {
         } catch (e: Exception) { }
     }
 
-    private fun forward(fd: ParcelFileDescriptor, dns: String, dns2: String?, p: ThreadPoolExecutor) {
+    private fun forward(fd: ParcelFileDescriptor, p: ThreadPoolExecutor) {
         val inp = FileInputStream(fd.fileDescriptor)
         val out = FileOutputStream(fd.fileDescriptor)
-        val t1 = InetAddress.getByName(dns)
-        val t2 = if (dns2 != null) InetAddress.getByName(dns2) else null
         val buf = ByteArray(32767)
         while (running) {
             val n = try { inp.read(buf) } catch (e: Exception) { break }
@@ -106,8 +141,10 @@ class DnsVpnService : VpnService() {
             if (buf[16].toInt() != 10 || buf[17].toInt() != 0 || buf[18].toInt() != 0 || buf[19].toInt() != 1) continue
             val dport = ((buf[ihl + 2].toInt() and 255) shl 8) or (buf[ihl + 3].toInt() and 255)
             if (dport != 53) continue
+            val x1 = t1 ?: continue
+            val x2 = t2
             val pkt = buf.copyOf(tl)
-            p.execute { handle(pkt, ihl, tl, t1, t2, out) }
+            p.execute { handle(pkt, ihl, tl, x1, x2, out) }
         }
         p.shutdownNow()
     }
@@ -126,7 +163,7 @@ class DnsVpnService : VpnService() {
         } catch (e: Exception) { null } finally { s.close() }
     }
 
-    private fun handle(p: ByteArray, ihl: Int, tl: Int, t1: InetAddress, t2: InetAddress?, out: FileOutputStream) {
+    private fun handle(p: ByteArray, ihl: Int, tl: Int, a: InetAddress, b: InetAddress?, out: FileOutputStream) {
         try {
             val payload = p.copyOfRange(ihl + 8, tl)
             val key = String(payload, 2, payload.size - 2, Charsets.ISO_8859_1)
@@ -137,8 +174,8 @@ class DnsVpnService : VpnService() {
                 resp = c.data.copyOf()
                 resp[0] = payload[0]; resp[1] = payload[1]
             } else {
-                resp = ask(payload, t1)
-                if (resp == null && t2 != null) resp = ask(payload, t2)
+                resp = ask(payload, a)
+                if (resp == null && b != null) resp = ask(payload, b)
                 if (resp != null && (resp[3].toInt() and 0x0F) == 0 && (resp[6].toInt() != 0 || resp[7].toInt() != 0)) {
                     if (cache.size > 400) cache.clear()
                     cache[key] = Cached(resp.copyOf(), now + 30_000)
@@ -169,6 +206,7 @@ class DnsVpnService : VpnService() {
 
     private fun stopVpn() {
         running = false
+        gen++
         VpnState.connected = false
         pool?.shutdownNow()
         pool = null
