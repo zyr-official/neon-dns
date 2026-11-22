@@ -1,3 +1,4 @@
+
 package com.neon.dns
 
 import android.app.Activity
@@ -7,6 +8,8 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Debug
+import android.os.Handler
+import android.os.Looper
 import java.security.MessageDigest
 
 class PingoApp : Application() {
@@ -16,10 +19,27 @@ class PingoApp : Application() {
             android.os.Process.killProcess(android.os.Process.myPid())
             System.exit(0)
         }
+
+        // تنظیمات سرورها: اول آخرین نسخه ذخیره‌شده، بعد بروزرسانی از اینترنت
+        RemoteConfig.load(this)
+        RemoteConfig.refresh(this)
+
+        // بعد از قطع اتصال، دوباره تنظیمات رو می‌گیره
+        val h = Handler(Looper.getMainLooper())
+        var was = false
+        h.post(object : Runnable {
+            override fun run() {
+                val now = VpnState.connected
+                if (was && !now) RemoteConfig.refresh(this@PingoApp, true, 1500)
+                was = now
+                h.postDelayed(this, 2000)
+            }
+        })
+
         registerActivityLifecycleCallbacks(object : Application.ActivityLifecycleCallbacks {
             override fun onActivityResumed(a: Activity) {
-                // جلوگیری از کلیک‌دزدی با لایه روی صفحه
                 a.window.decorView.filterTouchesWhenObscured = true
+                RemoteConfig.refresh(a)
             }
             override fun onActivityCreated(a: Activity, b: Bundle?) {}
             override fun onActivityStarted(a: Activity) {}
