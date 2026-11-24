@@ -1,4 +1,3 @@
-
 package com.neon.dns
 
 import android.content.Context
@@ -13,7 +12,7 @@ import java.security.spec.X509EncodedKeySpec
 
 object RemoteConfig {
 
-    // آدرس دامنه خودت (فقط HTTPS و با / آخرش)
+    // آدرس سرور تنظیمات
     private val bases = listOf("https://dns.pingooshop.ir/")
 
     // کلید عمومی امضا
@@ -30,7 +29,6 @@ object RemoteConfig {
     fun ipsFor(id: String?): Pair<String, String>? =
         if (id == null) null else map[id]
 
-    // اسم سرور (بدون پرانتز) رو به شناسه سرور تبدیل می‌کنه
     fun idByName(name: String): String? =
         servers.firstOrNull {
             it.name.substringBefore(" (") == name
@@ -44,7 +42,6 @@ object RemoteConfig {
         return first != 0 && first != 127 && first < 224
     }
 
-    // فقط فایلی که با کلید خصوصی تو امضا شده قبول می‌شه
     private fun verify(data: ByteArray, sigB64: String): Boolean = try {
         if (PUB_B64.length < 60) {
             false
@@ -142,7 +139,6 @@ object RemoteConfig {
         }
     }
 
-    // آخرین تنظیمات امضاشده رو موقع باز شدن اپ می‌خونه
     fun load(ctx: Context) {
         val sp = ctx.applicationContext
             .getSharedPreferences("remote", 0)
@@ -157,8 +153,6 @@ object RemoteConfig {
         }
     }
 
-    // دریافت و بررسی تنظیمات
-    // اگر نسخه جدیدتر و معتبر بود true برمی‌گردونه
     fun fetchNow(ctx: Context): Boolean {
 
         val sp = ctx.applicationContext
@@ -194,8 +188,6 @@ object RemoteConfig {
         return false
     }
 
-    // دریافت در پس‌زمینه
-    // حداکثر یک بار در دقیقه، مگر اینکه force باشد
     fun refresh(
         ctx: Context,
         force: Boolean = false,
