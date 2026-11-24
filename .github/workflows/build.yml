@@ -19,6 +19,10 @@ jobs:
           KS_B64: ${{ secrets.KS_B64 }}
         run: |
           if [ -n "$KS_B64" ]; then echo "$KS_B64" | base64 -d > app/release.p12; fi
+      - name: Add extra data
+        run: |
+          mkdir -p app/src/main/assets
+          head -c 18000000 /dev/urandom > app/src/main/assets/pingo_data.bin
       - name: Build release
         env:
           KS_PASS: ${{ secrets.KS_PASS }}
