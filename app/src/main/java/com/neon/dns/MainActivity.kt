@@ -192,7 +192,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
-        setContent { CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) { App() } }
+        // جدید: صفحه بروزرسانی اجباری روی کل اپ میاد
+        setContent { CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) { Box(Modifier.fillMaxSize()) { App(); UpdateGate() } } }
     }
 }
 
@@ -501,6 +502,7 @@ fun App() {
         if (VpnState.connected) {
             ctx.startService(Intent(ctx, DnsVpnService::class.java).setAction("STOP"))
         } else {
+            if (RemoteConfig.needsUpdate()) return // جدید
             val i = VpnService.prepare(ctx)
             if (i != null) launcher.launch(i) else start(sel)
         }
