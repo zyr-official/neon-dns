@@ -37,6 +37,7 @@ class DnsVpnService : VpnService() {
         if (dns == null || !ipRegex.matches(dns)) return START_NOT_STICKY
         val dns2 = intent.getStringExtra("dns2")?.takeIf { ipRegex.matches(it) }
         val name = intent.getStringExtra("name") ?: ""
+        if (RemoteConfig.needsUpdate()) return START_NOT_STICKY // جدید
 
         // اگه تنظیمات امضاشده از راه دور برای این سرور آی‌پی داشته باشه، همون استفاده می‌شه
         val sid = RemoteConfig.idByName(name)
@@ -78,6 +79,7 @@ class DnsVpnService : VpnService() {
                 if (!running || gen != myGen) break
                 try {
                     RemoteConfig.fetchNow(this)
+                    if (RemoteConfig.needsUpdate()) { stopVpn(); break } // جدید
                     val r = RemoteConfig.ipsFor(sid)
                     if (r != null) {
                         val n1 = InetAddress.getByName(r.first)
